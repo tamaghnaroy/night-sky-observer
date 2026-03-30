@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Night Sky Observer</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Night Sky Observer</h1>
+            <div class="controls">
+                <div class="location-info">
+                    <span id="location">Detecting location…</span>
+                    <button id="edit-location" title="Set location manually">✎ Edit</button>
+                </div>
+                <div class="time-info">
+                    <input type="datetime-local" id="datetime" />
+                    <button id="current-time">Use Current Time</button>
+                    <div id="location-time" class="location-time-label"></div>
+                </div>
+                <div class="view-controls">
+                    <button id="toggle-constellations">Toggle Constellations</button>
+                    <button id="toggle-zodiac">Toggle Zodiac</button>
+                    <button id="toggle-planets">Toggle Planets</button>
+                    <button id="toggle-comets">Toggle Comets</button>
+                    <button id="toggle-grid">Toggle Grid</button>
+                    <button id="toggle-dsos" class="active">Toggle DSOs</button>
+                    <button id="toggle-meteors">Toggle Meteors</button>
+                    <button id="toggle-iss">Toggle ISS</button>
+                    <button id="toggle-night-mode" title="Red light mode for dark adaptation">🌙 Night Mode</button>
+                    <button id="btn-reset-view" title="Reset zoom and pan (double-click canvas)">Reset View</button>
+                </div>
+            </div>
+            <div class="quick-actions">
+                <button id="btn-tonight" class="quick-btn primary-action">Tonight</button>
+                <button id="btn-search" class="quick-btn">Search</button>
+                <button id="btn-plan" class="quick-btn">Plan & Shoot</button>
+                <button id="btn-gear" class="quick-btn">⚙ Gear</button>
+                <button id="btn-log" class="quick-btn">📓 Log</button>
+                <button id="btn-export" class="quick-btn">📷 Export</button>
+            </div>
+        </header>
+        
+        <main>
+            <div class="sky-container">
+                <canvas id="sky-chart" style="display:block;width:100%"></canvas>
+                <div id="zoom-hint" class="zoom-hint">Scroll to zoom • Drag to pan • Double-click to reset</div>
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Loading sky data...</p>
+                </div>
+            </div>
+            
+            <div class="info-panel">
+                <div class="object-info" id="object-info">
+                    <h3>Celestial Objects</h3>
+                    <div id="objects-list"></div>
+                </div>
+                
+                <div class="legend">
+                    <h3>Legend</h3>
+                    <div class="legend-item">
+                        <span class="star-icon">★</span> Stars
+                    </div>
+                    <div class="legend-item">
+                        <span class="planet-icon">●</span> Planets
+                    </div>
+                    <div class="legend-item">
+                        <span class="constellation-line">—</span> Constellation Lines
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Location modal -->
+    <div id="location-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+            <h2>Set Your Location</h2>
+            <p class="modal-hint">Search by city name <em>or</em> enter coordinates directly.</p>
+
+            <div class="modal-row">
+                <input type="text" id="city-search" placeholder="e.g. Christchurch, New Zealand" autocomplete="off" />
+                <button id="city-search-btn">Search</button>
+            </div>
+            <div id="city-results"></div>
+
+            <div class="modal-divider">— or enter coordinates —</div>
+
+            <div class="modal-row">
+                <label>Latitude&nbsp;<input type="number" id="manual-lat" step="0.0001" min="-90" max="90" placeholder="-43.5321" /></label>
+                <label>Longitude&nbsp;<input type="number" id="manual-lon" step="0.0001" min="-180" max="180" placeholder="172.6362" /></label>
+            </div>
+
+            <div class="modal-actions">
+                <button id="modal-use-gps">⊕ Use GPS</button>
+                <button id="modal-apply" class="primary">Apply</button>
+                <button id="modal-cancel">Cancel</button>
+            </div>
+            <p id="modal-error" class="modal-error"></p>
+        </div>
+    </div>
+
+    <!-- Tonight Panel -->
+    <div id="tonight-panel" class="slide-panel">
+        <div class="panel-header">
+            <h2>Tonight's Sky</h2>
+            <button id="close-tonight" class="close-btn">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="tonight-summary">
+                <div class="summary-card">
+                    <div class="summary-label">Moon</div>
+                    <div class="summary-value" id="moon-phase">--</div>
+                    <div class="summary-desc" id="moon-desc">--</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Best Dark Window</div>
+                    <div class="summary-value" id="dark-window">--</div>
+                    <div class="summary-desc" id="dark-window-desc">After sunset</div>
+                </div>
+            </div>
+            <div id="twilight-times" style="margin:8px 0 12px;font-size:0.82em;color:rgba(160,200,255,0.85)"></div>
+            <div class="tonight-highlights">
+                <h3>Best Targets Tonight</h3>
+                <div id="tonight-targets"></div>
+            </div>
+            <div id="meteor-section" style="margin-top:14px;display:none">
+                <h3 style="margin-bottom:6px">☄ Active Meteor Showers</h3>
+                <div id="meteor-showers-list"></div>
+            </div>
+            <div id="iss-section" style="margin-top:14px">
+                <h3 style="margin-bottom:6px">🛰 ISS</h3>
+                <div id="iss-status" style="font-size:0.82em;color:rgba(160,200,255,0.7)">
+                    Enable <b>Toggle ISS</b> to track in real time.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search Modal -->
+    <div id="search-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box search-box">
+            <h2>Search Objects</h2>
+            <div class="modal-row">
+                <input type="text" id="object-search" placeholder="Search stars, planets, constellations, deep-sky..." autocomplete="off" />
+            </div>
+            <div id="search-results"></div>
+            <div class="modal-actions">
+                <button id="search-cancel" class="primary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gear Modal -->
+    <div id="gear-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+            <h2>Equipment Profile</h2>
+            <p class="modal-hint">Select your gear to get personalized recommendations.</p>
+            
+            <div class="gear-options">
+                <label class="gear-option">
+                    <input type="radio" name="gear-level" value="phone" checked>
+                    <span class="gear-icon">📱</span>
+                    <span class="gear-label">Phone Only</span>
+                    <span class="gear-desc">Handheld or tripod</span>
+                </label>
+                <label class="gear-option">
+                    <input type="radio" name="gear-level" value="dslr">
+                    <span class="gear-icon">📷</span>
+                    <span class="gear-label">DSLR/Mirrorless</span>
+                    <span class="gear-desc">Tripod mount</span>
+                </label>
+                <label class="gear-option">
+                    <input type="radio" name="gear-level" value="tracker">
+                    <span class="gear-icon">🔭</span>
+                    <span class="gear-label">With Tracker</span>
+                    <span class="gear-desc">Star tracker mount</span>
+                </label>
+                <label class="gear-option">
+                    <input type="radio" name="gear-level" value="telescope">
+                    <span class="gear-icon">🔭</span>
+                    <span class="gear-label">Telescope</span>
+                    <span class="gear-desc">Guided imaging</span>
+                </label>
+            </div>
+
+            <div class="modal-hint" style="margin-bottom:6px">Quick-fill preset:</div>
+            <div class="gear-presets" id="gear-presets"></div>
+
+            <div class="modal-row">
+                <label>Focal Length (mm)
+                    <input type="number" id="focal-length" value="50" min="8" max="2000" />
+                </label>
+                <label>Aperture (mm)
+                    <input type="number" id="aperture-mm" value="50" min="5" max="500" />
+                </label>
+            </div>
+            <div class="modal-row">
+                <label>Sensor Crop Factor
+                    <select id="crop-factor">
+                        <option value="1">Full Frame (1.0x)</option>
+                        <option value="1.5">APS-C (1.5x)</option>
+                        <option value="1.6">APS-C Canon (1.6x)</option>
+                        <option value="2">Micro 4/3 (2.0x)</option>
+                    </select>
+                </label>
+                <label>Pixel Pitch (μm)
+                    <input type="number" id="pixel-pitch" value="5.97" min="0.5" max="20" step="0.01" />
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button id="gear-save" class="primary">Save Profile</button>
+                <button id="gear-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Observation Log Panel -->
+    <div id="log-panel" class="slide-panel">
+        <div class="panel-header">
+            <h2>Observation Log</h2>
+            <div style="display:flex;gap:8px;align-items:center">
+                <button id="clear-log" style="font-size:0.8em;padding:3px 10px;background:rgba(200,60,60,0.3);border:1px solid rgba(255,80,80,0.4);border-radius:4px;color:#ffaaaa;cursor:pointer">Clear All</button>
+                <button id="close-log" class="close-btn">×</button>
+            </div>
+        </div>
+        <div class="panel-content">
+            <div id="log-stats" style="font-size:0.82em;color:rgba(160,200,255,0.7);margin-bottom:10px"></div>
+            <div id="log-entries"></div>
+            <p id="log-empty" style="color:rgba(160,200,255,0.4);font-style:italic">No observations logged yet.<br>Click any object on the sky chart, then tap <b>Log this</b>.</p>
+        </div>
+    </div>
+
+    <!-- Plan & Shoot Panel -->
+    <div id="plan-panel" class="slide-panel">
+        <div class="panel-header">
+            <h2>Plan & Shoot</h2>
+            <button id="close-plan" class="close-btn">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="plan-targets">
+                <h3>Select Target</h3>
+                <div id="plan-target-list"></div>
+            </div>
+            <div class="plan-details" id="plan-details" style="display:none">
+                <h3>Target Details</h3>
+                <div id="plan-target-info"></div>
+                <div class="plan-timing">
+                    <h4>Best Time</h4>
+                    <div id="plan-timing"></div>
+                </div>
+                <div class="plan-settings">
+                    <h4>Suggested Settings</h4>
+                    <div id="plan-settings"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="planets.js"></script>
+    <script src="stardata.js"></script>
+    <script src="dso-catalog.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

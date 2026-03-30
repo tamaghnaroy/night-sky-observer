@@ -1,0 +1,182 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - heading "Night Sky Observer" [level=1] [ref=e4]
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]: Christchurch, NZ (default)
+          - button "✎ Edit" [ref=e8] [cursor=pointer]
+        - generic [ref=e9]:
+          - textbox [ref=e10]: 2026-03-30T10:40
+          - button "Use Current Time" [ref=e11] [cursor=pointer]
+          - generic [ref=e81]: "📍 Local: 6:10 PM (UTC+13)"
+        - generic [ref=e12]:
+          - button "Toggle Constellations" [ref=e13] [cursor=pointer]
+          - button "Toggle Zodiac" [ref=e14] [cursor=pointer]
+          - button "Toggle Planets" [ref=e15] [cursor=pointer]
+          - button "Toggle Comets" [ref=e16] [cursor=pointer]
+          - button "Toggle Grid" [ref=e17] [cursor=pointer]
+          - button "Toggle DSOs" [ref=e18] [cursor=pointer]
+          - button "Toggle Meteors" [ref=e19] [cursor=pointer]
+          - button "Toggle ISS" [ref=e20] [cursor=pointer]
+          - button "🌙 Night Mode" [ref=e21] [cursor=pointer]
+          - button "Reset View" [ref=e22] [cursor=pointer]
+      - generic [ref=e23]:
+        - button "Tonight" [ref=e24] [cursor=pointer]
+        - button "Search" [ref=e25] [cursor=pointer]
+        - button "Plan & Shoot" [ref=e26] [cursor=pointer]
+        - button "⚙ Gear" [ref=e27] [cursor=pointer]
+        - button "📓 Log" [ref=e28] [cursor=pointer]
+        - button "📷 Export" [ref=e29] [cursor=pointer]
+    - main [ref=e30]:
+      - generic [ref=e31]:
+        - generic: Scroll to zoom • Drag to pan • Double-click to reset
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - heading "Celestial Objects" [level=3] [ref=e38]
+          - generic [ref=e82]:
+            - generic [ref=e83] [cursor=pointer]:
+              - strong [ref=e84]: Mercury
+              - generic [ref=e85]: ●
+              - text: Alt 2.6° Az 261.4° | Mag 0.0
+            - generic [ref=e86] [cursor=pointer]:
+              - strong [ref=e87]: Venus
+              - generic [ref=e88]: ●
+              - text: Alt 19.0° Az 306.6° | Mag -4.2
+            - generic [ref=e89] [cursor=pointer]:
+              - strong [ref=e90]: Mars
+              - generic [ref=e91]: ●
+              - text: Alt 6.4° Az 270.0° | Mag 0.5
+            - generic [ref=e92] [cursor=pointer]:
+              - strong [ref=e93]: Jupiter
+              - generic [ref=e94]: ●
+              - text: Alt 18.5° Az 27.9° | Mag -2.5
+            - generic [ref=e95] [cursor=pointer]:
+              - strong [ref=e96]: Saturn
+              - generic [ref=e97]: ●
+              - text: Alt 12.7° Az 282.4° | Mag 0.6
+            - generic [ref=e98] [cursor=pointer]:
+              - strong [ref=e99]: Uranus
+              - generic [ref=e100]: ●
+              - text: Alt 23.8° Az 337.6° | Mag 5.7
+            - generic [ref=e101] [cursor=pointer]:
+              - strong [ref=e102]: Neptune
+              - generic [ref=e103]: ●
+              - text: Alt 10.7° Az 279.6° | Mag 7.8
+            - generic [ref=e104] [cursor=pointer]:
+              - strong [ref=e105]: Moon
+              - generic [ref=e106]: ☽
+              - text: Alt 0.8° Az 75.6° | Mag -12.6
+            - generic [ref=e107] [cursor=pointer]:
+              - strong [ref=e108]: Canopus
+              - generic [ref=e109]: ★
+              - text: Alt 6.4° Az 183.8° | Mag -0.6
+            - generic [ref=e110] [cursor=pointer]:
+              - strong [ref=e111]: Arcturus
+              - generic [ref=e112]: ★
+              - text: Alt 1.5° Az 61.4° | Mag -0.1
+            - generic [ref=e113] [cursor=pointer]:
+              - strong [ref=e114]: Rigil Kent.
+              - generic [ref=e115]: ★
+              - text: Alt 50.0° Az 137.9° | Mag -0.0
+            - generic [ref=e116] [cursor=pointer]:
+              - strong [ref=e117]: Vega
+              - generic [ref=e118]: ★
+              - text: Alt 7.6° Az 2.3° | Mag 0.0
+            - generic [ref=e119] [cursor=pointer]:
+              - strong [ref=e120]: Achernar
+              - generic [ref=e121]: ★
+              - text: Alt 29.7° Az 217.5° | Mag 0.5
+            - generic [ref=e122] [cursor=pointer]:
+              - strong [ref=e123]: Hadar
+              - generic [ref=e124]: ★
+              - text: Alt 45.6° Az 138.0° | Mag 0.6
+            - generic [ref=e125] [cursor=pointer]:
+              - strong [ref=e126]: Altair
+              - generic [ref=e127]: ★
+              - text: Alt 35.7° Az 341.0° | Mag 0.8
+            - generic [ref=e128] [cursor=pointer]:
+              - strong [ref=e129]: Acrux
+              - generic [ref=e130]: ★
+              - text: Alt 35.6° Az 146.4° | Mag 0.8
+            - generic [ref=e131] [cursor=pointer]:
+              - strong [ref=e132]: Spica
+              - generic [ref=e133]: ★
+              - text: Alt 14.2° Az 92.0° | Mag 1.0
+            - generic [ref=e134] [cursor=pointer]:
+              - strong [ref=e135]: Antares
+              - generic [ref=e136]: ★
+              - text: Alt 57.1° Az 70.3° | Mag 1.1
+            - generic [ref=e137] [cursor=pointer]:
+              - strong [ref=e138]: Fomalhaut
+              - generic [ref=e139]: ★
+              - text: Alt 39.4° Az 264.1° | Mag 1.2
+            - generic [ref=e140] [cursor=pointer]:
+              - strong [ref=e141]: Mimosa
+              - generic [ref=e142]: ★
+              - text: Alt 36.4° Az 141.2° | Mag 1.3
+        - generic [ref=e39]:
+          - heading "Legend" [level=3] [ref=e40]
+          - generic [ref=e41]:
+            - generic [ref=e42]: ★
+            - text: Stars
+          - generic [ref=e43]:
+            - generic [ref=e44]: ●
+            - text: Planets
+          - generic [ref=e45]:
+            - generic [ref=e46]: —
+            - text: Constellation Lines
+  - generic [ref=e144]:
+    - heading "Set Your Location" [level=2] [ref=e145]
+    - paragraph [ref=e146]:
+      - text: Search by city name
+      - emphasis [ref=e147]: or
+      - text: enter coordinates directly.
+    - generic [ref=e148]:
+      - textbox "e.g. Christchurch, New Zealand" [ref=e149]
+      - button "Search" [ref=e150] [cursor=pointer]
+    - generic [ref=e151]: — or enter coordinates —
+    - generic [ref=e152]:
+      - generic [ref=e153]:
+        - text: Latitude
+        - spinbutton "Latitude" [ref=e154]: "-43.5321"
+      - generic [ref=e155]:
+        - text: Longitude
+        - spinbutton "Longitude" [ref=e156]: "172.6362"
+    - generic [ref=e157]:
+      - button "⊕ Use GPS" [ref=e158] [cursor=pointer]
+      - button "Apply" [ref=e159] [cursor=pointer]
+      - button "Cancel" [ref=e160] [cursor=pointer]
+    - paragraph [ref=e161]
+  - generic [ref=e47]:
+    - generic [ref=e48]:
+      - heading "Tonight's Sky" [level=2] [ref=e49]
+      - button "×" [ref=e50] [cursor=pointer]
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - generic [ref=e54]: Moon
+          - generic [ref=e55]: "--"
+          - generic [ref=e56]: "--"
+        - generic [ref=e57]:
+          - generic [ref=e58]: Best Dark Window
+          - generic [ref=e59]: "--"
+          - generic [ref=e60]: After sunset
+      - heading "Best Targets Tonight" [level=3] [ref=e62]
+      - generic [ref=e63]:
+        - heading "🛰 ISS" [level=3] [ref=e64]
+        - generic [ref=e65]: Enable Toggle ISS to track in real time.
+  - generic [ref=e66]:
+    - generic [ref=e67]:
+      - heading "Observation Log" [level=2] [ref=e68]
+      - generic [ref=e69]:
+        - button "Clear All" [ref=e70] [cursor=pointer]
+        - button "×" [ref=e71] [cursor=pointer]
+    - paragraph [ref=e73]:
+      - text: No observations logged yet.
+      - text: Click any object on the sky chart, then tap Log this.
+  - generic [ref=e74]:
+    - generic [ref=e75]:
+      - heading "Plan & Shoot" [level=2] [ref=e76]
+      - button "×" [ref=e77] [cursor=pointer]
+    - heading "Select Target" [level=3] [ref=e80]

@@ -1,0 +1,46 @@
+{
+  "name": "night-sky-observer",
+  "version": "1.0.0",
+  "description": "Interactive night sky observer with stars, constellations, planets, and comets",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "build": "electron-builder --win"
+  },
+  "author": "Night Sky Observer",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.nightsky.observer",
+    "productName": "Night Sky Observer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "app.js",
+      "planets.js",
+      "stardata.js",
+      "styles.css",
+      "data/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
