@@ -78,7 +78,13 @@ class NightSkyApp {
         this.currentTime = new Date();
         this.showConstellations = true;
         this.showZodiac          = true;
-        this.showComets          = true;
+        this.showComets               = false;
+        this.weatherData              = null;
+        this.cometDataStale           = false;
+        this.cometLastSynced          = null;
+        this.skyWorker                = null;
+        this.initialPositionsComputed = false;
+        this.deepLinkApplied          = false;
         this.showPlanets        = true;
         this.showGrid           = false;
         this.showDSOs           = true;
@@ -95,6 +101,8 @@ class NightSkyApp {
         this.tooltip  = null;
         this.dynamicConstellations = null;
         this.locationUTCOffset = 0;
+        this.locationTimezone = null;
+        this.locationTimezoneFallback = false;
         this.center   = { x: 0, y: 0 };
         this.radius   = 0;
         this.nightMode = false;
@@ -106,13 +114,10 @@ class NightSkyApp {
         this.isDragging = false;
         this.dragStart = null;
         this.hasDragged = false;
-        this.gearProfile = {
-            level: 'phone',
-            focalLength: 50,
-            cropFactor: 1,
-            aperture: 50,
-            pixelPitch: 5.97
-        };
+        const GEAR_DEFAULTS = { level: 'phone', focalLength: 50, cropFactor: 1, aperture: 28, pixelPitch: 5.97 };
+        this.GEAR_DEFAULTS = GEAR_DEFAULTS;
+        const savedGear = (() => { try { return JSON.parse(localStorage.getItem('nso-gear') || 'null'); } catch(_) { return null; } })();
+        this.gearProfile = Object.assign({}, GEAR_DEFAULTS, savedGear || {});
         this.observationLog = this.loadObsLog();
         this.dsos = this.buildDSOCatalog();
         this.zodiacConstellations = this.buildZodiacCatalog();
@@ -130,13 +135,14 @@ class NightSkyApp {
         document.getElementById('loading').classList.add('active');
         document.querySelector('#loading p').textContent = 'Loading star catalog…';
         await this.loadDynamicData();
+        this.initWorker();
         this.getLocation();
         setInterval(() => {
             if (this.location.lat !== null && !this.simMode) {
                 this.setCurrentDateTime();
                 this.updateSkyChart();
             }
-        }, 60000);
+        }, 15000); // 15 seconds for more responsive updates
     }
 
     buildStarCatalog() {
@@ -244,41 +250,49 @@ class NightSkyApp {
         document.getElementById('toggle-constellations').addEventListener('click', (e) => {
             this.showConstellations = !this.showConstellations;
             e.target.classList.toggle('active', this.showConstellations);
+            e.target.setAttribute('aria-pressed', this.showConstellations);
             this.render();
         });
         document.getElementById('toggle-zodiac').addEventListener('click', (e) => {
             this.showZodiac = !this.showZodiac;
             e.target.classList.toggle('active', this.showZodiac);
+            e.target.setAttribute('aria-pressed', this.showZodiac);
             this.render();
         });
         document.getElementById('toggle-comets').addEventListener('click', (e) => {
             this.showComets = !this.showComets;
             e.target.classList.toggle('active', this.showComets);
+            e.target.setAttribute('aria-pressed', this.showComets);
             this.render();
         });
         document.getElementById('toggle-planets').addEventListener('click', (e) => {
             this.showPlanets = !this.showPlanets;
             e.target.classList.toggle('active', this.showPlanets);
+            e.target.setAttribute('aria-pressed', this.showPlanets);
             this.render();
         });
         document.getElementById('toggle-grid').addEventListener('click', (e) => {
             this.showGrid = !this.showGrid;
             e.target.classList.toggle('active', this.showGrid);
+            e.target.setAttribute('aria-pressed', this.showGrid);
             this.render();
         });
         document.getElementById('toggle-dsos').addEventListener('click', (e) => {
             this.showDSOs = !this.showDSOs;
             e.target.classList.toggle('active', this.showDSOs);
+            e.target.setAttribute('aria-pressed', this.showDSOs);
             this.render();
         });
         document.getElementById('toggle-meteors').addEventListener('click', (e) => {
             this.showMeteors = !this.showMeteors;
             e.target.classList.toggle('active', this.showMeteors);
+            e.target.setAttribute('aria-pressed', this.showMeteors);
             this.render();
         });
         document.getElementById('toggle-iss').addEventListener('click', (e) => {
             this.showISS = !this.showISS;
             e.target.classList.toggle('active', this.showISS);
+            e.target.setAttribute('aria-pressed', this.showISS);
             if (this.showISS) this.startISSTracking();
             else              this.stopISSTracking();
         });
@@ -361,7 +375,7 @@ class NightSkyApp {
         document.getElementById('btn-tonight').addEventListener('click', () => this.openTonightPanel());
         document.getElementById('btn-search').addEventListener('click', () => this.openSearchModal());
         document.getElementById('btn-plan').addEventListener('click', () => this.openPlanPanel());
-        document.getElementById('btn-gear').addEventListener('click', () => this.openGearModal());
+        document.getElementById('btn-solve').addEventListener('click', () => this.openPlateSolvePanel());
         document.getElementById('btn-log').addEventListener('click', () => this.openLogPanel());
         document.getElementById('close-log').addEventListener('click', () => this.closeLogPanel());
         document.getElementById('clear-log').addEventListener('click', () => this.clearObsLog());
@@ -370,6 +384,15 @@ class NightSkyApp {
         // Panel close buttons
         document.getElementById('close-tonight').addEventListener('click', () => this.closeTonightPanel());
         document.getElementById('close-plan').addEventListener('click', () => this.closePlanPanel());
+        document.getElementById('close-solve').addEventListener('click', () => this.closePlateSolvePanel());
+        document.getElementById('solve-submit').addEventListener('click', () => this.runPlateSolve());
+        document.getElementById('solve-cancel').addEventListener('click', () => { this.solveAbort = true; });
+
+        // Gear profile inputs (Plan & Shoot panel)
+        ['gear-focal','gear-crop','gear-fratio','gear-pitch'].forEach(id =>
+            document.getElementById(id).addEventListener('change', () => this.saveGearProfileFromUI()));
+        document.querySelectorAll('input[name="gear-level"]').forEach(r => r.addEventListener('change', () => this.saveGearProfileFromUI()));
+        document.getElementById('gear-reset').addEventListener('click', () => this.resetGearProfile());
 
         // Search modal
         document.getElementById('search-cancel').addEventListener('click', () => this.closeSearchModal());
@@ -378,11 +401,17 @@ class NightSkyApp {
             this.displaySearchResults(results);
         });
 
-        // Gear modal
-        document.getElementById('gear-save').addEventListener('click', () => this.saveGearProfile());
-        document.getElementById('gear-cancel').addEventListener('click', () => this.closeGearModal());
-
-        // ── Zoom & Pan ────────────────────────────────────────────────────────
+        // Zoom/pan interactions - hide hint after first interaction
+        const zoomHint = document.getElementById('zoom-hint');
+        const hideHint = () => {
+            if (zoomHint) {
+                zoomHint.style.opacity = '0';
+                zoomHint.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => zoomHint.style.display = 'none', 500);
+            }
+        };
+        this.canvas.addEventListener('wheel', hideHint, { once: true });
+        this.canvas.addEventListener('mousedown', hideHint, { once: true });
         this.canvas.addEventListener('wheel', e => {
             e.preventDefault();
             const delta = e.deltaY > 0 ? 0.85 : 1 / 0.85;
@@ -475,7 +504,7 @@ class NightSkyApp {
         // 1. Try saved location first (instant)
         const saved = this.loadSavedLocation();
         if (saved) {
-            this.applyLocation(saved.lat, saved.lon, saved.label, false, saved.utcOffset);
+            this.applyLocation(saved.lat, saved.lon, saved.label, false, saved.utcOffset, saved.timezone);
             return;
         }
         // 2. Try browser GPS, with default fallback
@@ -485,12 +514,25 @@ class NightSkyApp {
             return;
         }
         navigator.geolocation.getCurrentPosition(
-            pos => {
-                const gpsUTCOffset = -(new Date().getTimezoneOffset() / 60);
+            async pos => {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+                // Fetch proper timezone for the GPS coordinates
+                let gpsUTCOffset, gpsTimezone;
+                try {
+                    const resp = await fetch(`/api/timezone?lat=${lat}&lon=${lon}`);
+                    const data = await resp.json();
+                    gpsUTCOffset = data.utcOffset;
+                    gpsTimezone = data.timezone;
+                } catch (e) {
+                    // Fallback to browser timezone only on API failure
+                    gpsUTCOffset = -(new Date().getTimezoneOffset() / 60);
+                    gpsTimezone = null;
+                }
                 this.applyLocation(
-                    pos.coords.latitude, pos.coords.longitude,
-                    `${pos.coords.latitude.toFixed(4)}°, ${pos.coords.longitude.toFixed(4)}°`,
-                    true, gpsUTCOffset
+                    lat, lon,
+                    `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`,
+                    true, gpsUTCOffset, gpsTimezone
                 );
             },
             () => {
@@ -501,19 +543,22 @@ class NightSkyApp {
     }
 
     initToggleButtonStates() {
-        // Set initial active states for toggle buttons (fixes §2.1)
-        document.getElementById('toggle-constellations').classList.toggle('active', this.showConstellations);
-        document.getElementById('toggle-zodiac').classList.toggle('active', this.showZodiac);
-        document.getElementById('toggle-planets').classList.toggle('active', this.showPlanets);
-        document.getElementById('toggle-comets').classList.toggle('active', this.showComets);
-        document.getElementById('toggle-grid').classList.toggle('active', this.showGrid);
-        document.getElementById('toggle-dsos').classList.toggle('active', this.showDSOs);
-        if (document.getElementById('toggle-meteors')) {
-            document.getElementById('toggle-meteors').classList.toggle('active', this.showMeteors);
-        }
-        if (document.getElementById('toggle-iss')) {
-            document.getElementById('toggle-iss').classList.toggle('active', this.showISS);
-        }
+        // Set initial active states and aria-pressed for toggle buttons
+        const setToggleState = (id, state) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.toggle('active', state);
+                el.setAttribute('aria-pressed', state);
+            }
+        };
+        setToggleState('toggle-constellations', this.showConstellations);
+        setToggleState('toggle-zodiac', this.showZodiac);
+        setToggleState('toggle-planets', this.showPlanets);
+        setToggleState('toggle-grid', this.showGrid);
+        setToggleState('toggle-dsos', this.showDSOs);
+        setToggleState('toggle-comets', this.showComets);
+        setToggleState('toggle-meteors', this.showMeteors);
+        setToggleState('toggle-iss', this.showISS);
     }
 
     useDefaultLocation() {
@@ -525,16 +570,54 @@ class NightSkyApp {
         setTimeout(() => this.openLocationModal(false), 500);
     }
 
-    applyLocation(lat, lon, label, save = true, utcOffset = undefined) {
+    async applyLocation(lat, lon, label, save = true, utcOffset = undefined, timezone = undefined) {
         this.location.lat = lat;
         this.location.lon = lon;
-        this.locationUTCOffset = (utcOffset !== undefined) ? utcOffset : Math.round(lon / 15 * 2) / 2;
+        
+        // Use provided timezone info, or fetch from API, or fall back to rough calculation
+        if (utcOffset !== undefined) {
+            this.locationUTCOffset = utcOffset;
+            this.locationTimezone = timezone || null;
+            this.locationTimezoneFallback = !timezone;
+        } else {
+            // Try to get accurate timezone from API
+            try {
+                const resp = await fetch(`/api/timezone?lat=${lat}&lon=${lon}`);
+                const data = await resp.json();
+                this.locationUTCOffset = data.utcOffset;
+                // Only store IANA timezone when we have a real one; null triggers fixed-offset fallback path
+                if (data.fallback || !data.timezone || data.timezone === 'unknown') {
+                    this.locationTimezone = null;
+                    this.locationTimezoneFallback = true;
+                    console.warn('Timezone API fallback used - DST-aware time travel may be less accurate');
+                } else {
+                    this.locationTimezone = data.timezone;
+                    this.locationTimezoneFallback = false;
+                }
+            } catch (e) {
+                // Fallback to rough longitude-based calculation
+                this.locationUTCOffset = Math.round(lon / 15 * 2) / 2;
+                this.locationTimezone = null;
+                this.locationTimezoneFallback = true;
+                console.warn('Timezone lookup failed, using rough estimate');
+            }
+        }
+        
         document.getElementById('location').textContent = label;
         document.getElementById('loading').classList.remove('active');
-        if (save) this.saveLocation(lat, lon, label, this.locationUTCOffset);
+        if (save) this.saveLocation(lat, lon, label, this.locationUTCOffset, this.locationTimezone);
+        this.initialPositionsComputed = false;
         this.updateSkyChart();
         // Pre-compute tonight's data so panel is ready (fixes §2.5)
         this.updateTonightPanelData();
+        this.fetchWeather();
+        // Apply PWA manifest shortcut deep link (once, on first location set)
+        if (!this.deepLinkApplied) {
+            this.deepLinkApplied = true;
+            const panel = new URLSearchParams(window.location.search).get('panel');
+            if (panel === 'tonight') setTimeout(() => this.openTonightPanel(), 150);
+            else if (panel === 'plan') setTimeout(() => this.openPlanPanel(), 150);
+        }
     }
 
     updateTonightPanelData() {
@@ -558,9 +641,9 @@ class NightSkyApp {
     }
 
     // ── localStorage persistence ──────────────────────────────────────────────
-    saveLocation(lat, lon, label, utcOffset) {
+    saveLocation(lat, lon, label, utcOffset, timezone) {
         try {
-            localStorage.setItem('nso_location', JSON.stringify({ lat, lon, label, utcOffset }));
+            localStorage.setItem('nso_location', JSON.stringify({ lat, lon, label, utcOffset, timezone }));
         } catch (_) {}
     }
 
@@ -671,6 +754,60 @@ class NightSkyApp {
         return { alt: altR * 180 / Math.PI, az };
     }
 
+    // Get UTC offset for a specific date (handles DST transitions for simulated dates)
+    getUTCOffsetForDate(date) {
+        if (!this.locationTimezone || this.locationTimezone.startsWith('UTC')) {
+            // For UTC+X or when no IANA timezone, use fixed offset
+            return this.locationUTCOffset || 0;
+        }
+        
+        try {
+            // Use Intl.DateTimeFormat to get offset for specific date in IANA timezone
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: this.locationTimezone,
+                timeZoneName: 'shortOffset',
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric'
+            });
+            
+            const parts = formatter.formatToParts(date);
+            const tzPart = parts.find(p => p.type === 'timeZoneName');
+            if (tzPart) {
+                // Parse offset from GMT+X or GMT-X format
+                const match = tzPart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
+                if (match) {
+                    const sign = match[1] === '+' ? 1 : -1;
+                    const hours = parseInt(match[2]) || 0;
+                    const mins = parseInt(match[3]) || 0;
+                    return sign * (hours + mins / 60);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to compute timezone offset for date:', e);
+        }
+        
+        // Fallback to stored offset
+        return this.locationUTCOffset || 0;
+    }
+
+    // Get location-local date components for a given UTC date
+    getLocationLocalDate(date) {
+        const offset = this.getUTCOffsetForDate(date);
+        const locMs = date.getTime() + offset * 3600000;
+        const locDate = new Date(locMs);
+        return {
+            year: locDate.getUTCFullYear(),
+            month: locDate.getUTCMonth(),
+            date: locDate.getUTCDate(),
+            hours: locDate.getUTCHours(),
+            minutes: locDate.getUTCMinutes(),
+            dayOfYear: Math.floor((locMs - new Date(locDate.getUTCFullYear(), 0, 0).getTime()) / 86400000)
+        };
+    }
+
     // ── Get planet & moon positions via astronomy-engine ─────────────────────
     computePlanetPositions() {
         if (typeof Astronomy === 'undefined') {
@@ -764,41 +901,83 @@ class NightSkyApp {
     updateLocationTimeDisplay() {
         const el = document.getElementById('location-time');
         if (!el || this.location.lat === null) return;
-        const locMs   = this.currentTime.getTime() + this.locationUTCOffset * 3600000;
+        // Get offset for current simulated date (handles DST)
+        const offset = this.getUTCOffsetForDate(this.currentTime);
+        const locMs   = this.currentTime.getTime() + offset * 3600000;
         const locDate = new Date(locMs);
         const pad     = n => String(n).padStart(2, '0');
         const h = locDate.getUTCHours();
         const m = locDate.getUTCMinutes();
         const ampm = h >= 12 ? 'PM' : 'AM';
         const h12  = h % 12 || 12;
-        const sign  = this.locationUTCOffset >= 0 ? '+' : '';
-        el.textContent = `📍 Local: ${h12}:${pad(m)} ${ampm} (UTC${sign}${this.locationUTCOffset})`;
+        // Show IANA timezone name (e.g., 'Pacific/Auckland') or UTC offset
+        const tzDisplay = this.locationTimezone
+            ? this.locationTimezone.split('/').pop().replace(/_/g, ' ')
+            : `UTC${offset >= 0 ? '+' : ''}${offset}${this.locationTimezoneFallback ? ' (approx)' : ''}`;
+        el.textContent = `${h12}:${pad(m)} ${ampm} ${tzDisplay}`;
     }
 
-    // ── Main update ───────────────────────────────────────────────────────────
+    // ── Main update ─────────────────────────────────────────────────────────────
     updateSkyChart() {
         if (this.location.lat === null) return;
 
-        // Update star positions
+        // Planets always on main thread (astronomy-engine not in worker)
+        this.computePlanetPositions();
+
+        if (this.skyWorker) {
+            // First call: seed positions synchronously so first render is not blank
+            if (!this.initialPositionsComputed) {
+                this.computePositionsSynchronous();
+                this.initialPositionsComputed = true;
+            }
+            // Dispatch heavy star/DSO loop to background thread
+            const jd  = this.julianDate(this.currentTime);
+            const n   = this.stars.length + this.dsos.length;
+            const ras  = new Float32Array(n);
+            const decs = new Float32Array(n);
+            this.stars.forEach((s, i) => { ras[i] = s.ra; decs[i] = s.dec; });
+            this.dsos.forEach((d, i) => { ras[this.stars.length + i] = d.ra; decs[this.stars.length + i] = d.dec; });
+            this.skyWorker.postMessage(
+                { cmd: 'computePositions', ras, decs, nStars: this.stars.length, lat: this.location.lat, lon: this.location.lon, jd },
+                [ras.buffer, decs.buffer]
+            );
+            this.render();
+            this.updateInfoPanel();
+            this.updateLocationTimeDisplay();
+        } else {
+            this.computePositionsSynchronous();
+            this.render();
+            this.updateInfoPanel();
+            this.updateLocationTimeDisplay();
+        }
+    }
+
+    computePositionsSynchronous() {
         this.stars.forEach(s => {
             const { alt, az } = this.raDecToAltAz(s.ra, s.dec);
-            s.alt     = alt;
-            s.az      = az;
-            s.visible = alt > -0.3;
+            s.alt = alt; s.az = az; s.visible = alt > -0.3;
         });
-
-        // Update DSO positions
         this.dsos.forEach(d => {
             const { alt, az } = this.raDecToAltAz(d.ra, d.dec);
-            d.alt     = alt;
-            d.az      = az;
-            d.visible = alt > 0;
+            d.alt = alt; d.az = az; d.visible = alt > 0;
         });
+    }
 
-        this.computePlanetPositions();
-        this.render();
-        this.updateInfoPanel();
-        this.updateLocationTimeDisplay();
+    initWorker() {
+        if (typeof Worker === 'undefined') return;
+        try {
+            this.skyWorker = new Worker('/sky-worker.js');
+            this.skyWorker.onmessage = e => {
+                if (e.data.cmd !== 'positions') return;
+                const { alts, azs, nStars } = e.data;
+                this.stars.forEach((s, i) => { s.alt = alts[i]; s.az = azs[i]; s.visible = alts[i] > -0.3; });
+                this.dsos.forEach((d, i) => { const j = nStars + i; d.alt = alts[j]; d.az = azs[j]; d.visible = alts[j] > 0; });
+                this.render();
+                this.updateInfoPanel();
+                this.updateLocationTimeDisplay();
+            };
+            this.skyWorker.onerror = () => { this.skyWorker = null; };
+        } catch (_) { this.skyWorker = null; }
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -1487,7 +1666,7 @@ class NightSkyApp {
 
     objectsAtXY(x, y, radius = 12) {
         const hits = [];
-        [...this.stars, ...this.planets, this.moonData, ...this.dsos].filter(Boolean).forEach(obj => {
+        [...this.stars, ...this.planets, this.moonData, ...this.dsos, ...(this.showComets ? this.comets : [])].filter(Boolean).forEach(obj => {
             if (!obj.visible) return;
             const pos = this.altAzToXY(obj.alt, obj.az);
             if (!pos) return;
@@ -1560,23 +1739,55 @@ class NightSkyApp {
                 const fmt = t => t ? this.formatTime(t) : '--';
                 extraLines += `<br>Rises <b>${fmt(rs.rise)}</b> &nbsp; Sets <b>${fmt(rs.set)}</b>`;
             }
+            // Wikipedia link
+            extraLines += `<br><a href="https://en.wikipedia.org/wiki/${encodeURIComponent(obj.name)}" target="_blank" rel="noopener"
+                style="font-size:0.78em;color:rgba(120,180,255,0.8);text-decoration:none">📖 Wikipedia</a>`;
         } else if (obj.isMoon) {
-            extraLines += `<br>Phase <b>${obj.phase.toFixed(0)}°</b> · <b>${(obj.fraction*100).toFixed(0)}%</b> illuminated`;
+            const MOON_PHASES = ['🌑 New Moon','🌒 Waxing Crescent','🌓 First Quarter','🌔 Waxing Gibbous',
+                                 '🌕 Full Moon','🌖 Waning Gibbous','🌗 Last Quarter','🌘 Waning Crescent'];
+            const phaseIdx = Math.round((obj.phase % 360) / 45) % 8;
+            extraLines += `<br><b>${MOON_PHASES[phaseIdx]}</b>`;
+            extraLines += `<br>Phase angle <b>${obj.phase.toFixed(0)}°</b> · <b>${(obj.fraction*100).toFixed(0)}%</b> illuminated`;
             const rs = this.getPlanetRiseSet('Moon');
             if (rs) {
                 const fmt = t => t ? this.formatTime(t) : '--';
                 extraLines += `<br>Rises <b>${fmt(rs.rise)}</b> &nbsp; Sets <b>${fmt(rs.set)}</b>`;
             }
+        } else if (obj.isComet) {
+            if (obj.mag !== null && obj.mag !== undefined)
+                extraLines += `<br>H mag: <b>${Number(obj.mag).toFixed(1)}</b>`;
+            if (obj.dist)
+                extraLines += `<br>Distance: <b>${obj.dist} AU</b> from Earth`;
+            const topoNote = obj.topocentric ? '✓ Topocentric correction applied' : 'Geocentric position';
+            extraLines += `<br><span style="font-size:0.75em;color:rgba(150,230,150,0.65)">${topoNote} · JPL orbital elements</span>`;
         } else {
             if (obj.magnitude !== undefined)
                 extraLines += `<br>Mag ${Number(obj.magnitude).toFixed(1)}`;
-            if (obj.isDSO)
+            if (obj.isDSO) {
                 extraLines += `<br>Size ${obj.size}′`;
+                if (obj.const) extraLines += ` &nbsp; in <b>${obj.const}</b>`;
+                // Deep-card: SkyView DSS thumbnail + Aladin link
+                const raDeg  = obj.ra.toFixed(4);
+                const decDeg = obj.dec.toFixed(4);
+                const skyviewUrl = `https://skyview.gsfc.nasa.gov/current/cgi/runquery.pl?Survey=DSS&Position=${raDeg},${decDeg}&Size=0.5&Pixels=120&Return=JPEG`;
+                const aladInUrl  = `https://aladin.u-strasbg.fr/AladinLite/?target=${encodeURIComponent(obj.name)}&fov=0.5&survey=P/DSS2/color`;
+                extraLines += `<br><img src="${skyviewUrl}" width="120" height="120"
+                    style="display:block;margin:6px 0;border:1px solid rgba(100,150,255,0.3);border-radius:4px"
+                    loading="lazy" alt="DSS image of ${obj.name}" onerror="this.style.display='none'">`;
+                extraLines += `<a href="${aladInUrl}" target="_blank" rel="noopener"
+                    style="font-size:0.78em;color:rgba(120,180,255,0.8);text-decoration:none">🔭 View in Aladin</a>`;
+            } else if (obj.name) {
+                // Named star: show observing category
+                const vmag = obj.magnitude !== undefined ? Number(obj.magnitude) : 10;
+                const hint = vmag < 1 ? 'Naked eye (very bright)' : vmag < 3 ? 'Naked eye' :
+                             vmag < 5 ? 'Naked eye (dark sky needed)' : vmag < 7 ? 'Binoculars' : 'Telescope';
+                extraLines += `<br><span style="font-size:0.75em;color:rgba(180,210,255,0.55)">${hint}</span>`;
+            }
         }
 
         div.innerHTML = `
             <strong>${obj.name || 'Unnamed Star'}</strong>
-            &nbsp;<span style="font-size:0.75em;opacity:0.7">${obj.isDSO ? obj.type : obj.isPlanet ? '● Planet' : obj.isMoon ? '☽ Moon' : '★ Star'}</span><br>
+            &nbsp;<span style="font-size:0.75em;opacity:0.7">${obj.isDSO ? obj.type : obj.isPlanet ? '● Planet' : obj.isMoon ? '☽ Moon' : obj.isComet ? '☄ Comet' : '★ Star'}</span><br>
             Alt <b>${obj.alt.toFixed(2)}°</b>&nbsp; Az <b>${obj.az.toFixed(2)}°</b><br>
             RA ${(obj.ra/15).toFixed(3)}h &nbsp; Dec ${obj.dec.toFixed(2)}°
             ${extraLines}
@@ -1666,47 +1877,107 @@ class NightSkyApp {
         const comets = [];
         
         try {
-            const response = await fetch('/api/comets');
+            // Pass observer lat/lon for topocentric (observer-specific) parallax correction
+            const latLon = (this.location.lat !== null && this.location.lon !== null)
+                ? `?lat=${this.location.lat}&lon=${this.location.lon}` : '';
+            const response = await fetch(`/api/comets${latLon}`);
             if (response.ok) {
                 const data = await response.json();
-                if (data.objects) {
-                    data.objects.slice(0, 20).forEach(obj => {
-                        if (obj.pha || obj.pc > 0) {
+                if (data.offline) {
+                    this.cometDataStale  = true;
+                    this.cometLastSynced = data.lastSynced || null;
+                    console.warn('Comet data served from offline cache');
+                } else {
+                    this.cometDataStale  = false;
+                    this.cometLastSynced = Date.now();
+                }
+                if (data.comets && data.comets.length > 0) {
+                    data.comets.forEach(obj => {
+                        if (isFinite(obj.ra) && isFinite(obj.dec)) {
                             comets.push({
-                                name: obj.full_name || obj.pdes,
-                                designation: obj.pdes,
-                                ra: obj.ra ? obj.ra[0] : 0,
-                                dec: obj.dec ? obj.dec[0] : 0,
-                                mag: obj.h ? parseFloat(obj.h) : 10,
-                                velocity: obj.velocity ? obj.velocity[0] : 0,
-                                distance: obj.distance ? obj.distance[0] : 0,
-                                discovered: obj.discovery_date || 'Unknown'
+                                name: obj.name || obj.designation,
+                                designation: obj.designation,
+                                ra: obj.ra,
+                                dec: obj.dec,
+                                mag: obj.mag,
+                                dist: obj.dist,
+                                topocentric: obj.topocentric || false,
+                                isComet: true
                             });
                         }
                     });
                 }
             }
         } catch (e) {
-            console.log('Using fallback comet data');
-        }
-
-        if (comets.length === 0) {
-            comets.push(...this.getFallbackComets());
+            console.warn('Comet API fetch failed:', e.message);
         }
 
         this.comets = comets;
         this.lastDataFetch = now;
     }
 
-    getFallbackComets() {
-        return [
-            { name: 'C/2023 A3 (Tsuchinshan-ATLAS)', designation: 'C/2023 A3', ra: 14.5, dec: -8, mag: 7, velocity: 25, distance: 2.1, discovered: '2023-01-09' },
-            { name: 'C/2024 G3 (ATLAS)', designation: 'C/2024 G3', ra: 22.0, dec: -55, mag: 6, velocity: 42, distance: 0.4, discovered: '2024-04-05' },
-            { name: '12P/Pons-Brooks', designation: '12P/Pons-Brooks', ra: 1.5, dec: 55, mag: 8, velocity: 20, distance: 1.5, discovered: '1812-07-12' },
-            { name: '13P/Olbers', designation: '13P/Olbers', ra: 6.0, dec: 30, mag: 9, velocity: 22, distance: 1.9, discovered: '1795-03-17' },
-            { name: 'C/2022 E3 (ZTF)', designation: 'C/2022 E3', ra: 10.5, dec: 70, mag: 10, velocity: 18, distance: 2.8, discovered: '2022-03-02' },
-            { name: 'C/2021 A1 (Leonard)', designation: 'C/2021 A1', ra: 8.0, dec: 35, mag: 9, velocity: 30, distance: 2.0, discovered: '2021-01-03' },
-        ];
+    // ── Weather / Observing Conditions ─────────────────────────────────────────
+    async fetchWeather() {
+        if (this.location.lat === null) return;
+        try {
+            const resp = await fetch(`/api/weather?lat=${this.location.lat}&lon=${this.location.lon}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.stale && !data.error) {
+                    this.weatherData = data;
+                    this.updateWeatherDisplay(data.lastSynced);
+                } else if (data.offline) {
+                    this.showWeatherOfflineState();
+                } else if (!data.error) {
+                    this.weatherData = data;
+                    this.updateWeatherDisplay();
+                }
+            }
+        } catch (e) {
+            this.showWeatherOfflineState();
+            console.warn('Weather fetch failed:', e.message);
+        }
+    }
+
+    showWeatherOfflineState() {
+        const el = document.getElementById('weather-section');
+        if (!el) return;
+        const cometNote = this.cometDataStale
+            ? `<div style="font-size:0.78em;color:rgba(255,200,100,0.65);margin-top:4px">☄ Comet data: offline cache${
+                this.cometLastSynced ? ` (synced ${Math.round((Date.now() - this.cometLastSynced) / 60000)} min ago)` : ''
+              }</div>` : '';
+        el.innerHTML = `
+            <h3 style="margin-bottom:6px">⛅ Observing Conditions</h3>
+            <div style="font-size:0.82em;color:rgba(255,200,120,0.7)">⚠️ Offline — live conditions unavailable</div>
+            ${cometNote}
+        `;
+        el.style.display = 'block';
+    }
+
+    updateWeatherDisplay(lastSynced = null) {
+        const el = document.getElementById('weather-section');
+        if (!el || !this.weatherData) return;
+        const { cloud, visibility, wind, seeingLabel, observing } = this.weatherData;
+        const obsColor = observing === 'Good' ? '#4caf7d' : observing === 'Fair' ? '#f0c040' : '#e07840';
+        const staleNote = lastSynced
+            ? `<div style="font-size:0.78em;color:rgba(255,200,120,0.7);margin-top:2px">⚠️ Offline — conditions from cache (${Math.round((Date.now() - lastSynced) / 60000)} min ago)</div>` : '';
+        const cometNote = this.cometDataStale
+            ? `<div style="font-size:0.78em;color:rgba(255,200,100,0.65);margin-top:4px">☄ Comet data: offline cache${
+                this.cometLastSynced ? ` (synced ${Math.round((Date.now() - this.cometLastSynced) / 60000)} min ago)` : ''
+              }</div>` : '';
+        el.innerHTML = `
+            <h3 style="margin-bottom:6px">⛅ Observing Conditions</h3>
+            ${staleNote}
+            <div style="font-size:0.82em;color:rgba(160,200,255,0.85);line-height:1.8">
+                <span style="color:${obsColor};font-weight:bold">${observing || '--'}</span>
+                &emsp; ☁ Cloud: ${cloud !== null ? cloud + '%' : '--'}
+                &emsp; 💨 Wind: ${wind !== null ? wind + ' km/h' : '--'}<br>
+                🔭 Visibility: ${visibility !== null ? visibility + ' km' : '--'}
+                &emsp; Seeing: <b>${seeingLabel || '--'}</b>
+            </div>
+            ${cometNote}
+        `;
+        el.style.display = 'block';
     }
 
     // ── Night Mode Toggle ─────────────────────────────────────────────────────
@@ -1723,8 +1994,8 @@ class NightSkyApp {
         document.getElementById('tonight-panel').classList.remove('open');
         document.getElementById('plan-panel').classList.remove('open');
         document.getElementById('log-panel').classList.remove('open');
+        document.getElementById('solve-panel').classList.remove('open');
         document.getElementById('search-modal').style.display = 'none';
-        document.getElementById('gear-modal').style.display = 'none';
         document.getElementById('location-modal').style.display = 'none';
     }
 
@@ -1776,23 +2047,22 @@ class NightSkyApp {
         // Use astro twilight for the dark window display; fall back to sunset/sunrise
         const darkFrom = astro.eve  || this.getSunsetTime();
         const darkTo   = astro.morn || this.getSunriseTime();
+        const tzAbbr = this.locationTimezone ? this.locationTimezone.split('/').pop().replace(/_/g, ' ') : `UTC${this.locationUTCOffset >= 0 ? '+' : ''}${this.locationUTCOffset}`;
         document.getElementById('dark-window').textContent = darkFrom && darkTo ?
-            `${this.formatTime(darkFrom)} – ${this.formatTime(darkTo)}` : '--';
+            `${this.formatTime(darkFrom)} – ${this.formatTime(darkTo)} ${tzAbbr}` : '--';
         document.getElementById('dark-window-desc').textContent = 'Astronomical dark (Sun < −18°)';
 
-        // Best targets
+        // Best targets - condensed summary (top 5 only, minimal details)
         const targets = this.getBestTargetsTonight();
         const scoreColor = s => s >= 75 ? '#4caf7d' : s >= 50 ? '#f0c040' : s >= 30 ? '#e07840' : '#888';
-        const targetsHtml = targets.slice(0, 8).map(t => `
-            <div class="target-item" data-ra="${t.ra}" data-dec="${t.dec}">
+        const targetsHtml = targets.slice(0, 5).map(t => `
+            <div class="target-item" data-ra="${t.ra}" data-dec="${t.dec}" style="display:flex;align-items:center;gap:8px;padding:4px 0">
                 <span class="target-icon">${t.icon}</span>
-                <div class="target-info">
-                    <div class="target-name">${t.name}</div>
-                    <div class="target-meta">${t.type} • ${t.const}</div>
+                <div class="target-info" style="flex:1">
+                    <span class="target-name" style="font-weight:500">${t.name}</span>
                 </div>
                 <span class="target-score" style="background:${scoreColor(t.score)};color:#fff;
-                    border-radius:4px;padding:2px 6px;font-size:0.8em;font-weight:bold;min-width:32px;
-                    text-align:center">${t.score}</span>
+                    border-radius:4px;padding:2px 6px;font-size:0.75em;font-weight:bold">${t.score}</span>
             </div>
         `).join('');
         document.getElementById('tonight-targets').innerHTML = targetsHtml || '<p>No targets available</p>';
@@ -1840,33 +2110,47 @@ class NightSkyApp {
     }
 
     getSunsetTime() {
-        const d = new Date(this.currentTime);
-        const dayOfYear = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+        // Use location-local date for solar calculations
+        const locDate = this.getLocationLocalDate(this.currentTime);
+        const dayOfYear = locDate.dayOfYear;
         const lat = this.location.lat;
         const decl = -23.45 * Math.cos(2 * Math.PI * (dayOfYear + 10) / 365);
         const tanProd = Math.tan(lat * Math.PI / 180) * Math.tan(decl * Math.PI / 180);
         if (Math.abs(tanProd) > 1) return null;
         const hourAngle = Math.acos(-tanProd) * 180 / Math.PI;
         const solarNoon = 12 - this.location.lon / 15;
-        return new Date(d.setHours(Math.floor(solarNoon - hourAngle / 15),
-            Math.round(((solarNoon - hourAngle / 15) % 1) * 60), 0, 0));
+        const sunsetHours = solarNoon - hourAngle / 15;
+        // Return UTC date - formatTime() will handle timezone conversion
+        return new Date(Date.UTC(locDate.year, locDate.month, locDate.date, 
+            Math.floor(sunsetHours), Math.round((sunsetHours % 1) * 60), 0));
     }
 
     getSunriseTime() {
-        const d = new Date(this.currentTime);
-        const dayOfYear = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+        // Use location-local date for solar calculations
+        const locDate = this.getLocationLocalDate(this.currentTime);
+        const dayOfYear = locDate.dayOfYear;
         const lat = this.location.lat;
         const decl = -23.45 * Math.cos(2 * Math.PI * (dayOfYear + 10) / 365);
         const tanProd = Math.tan(lat * Math.PI / 180) * Math.tan(decl * Math.PI / 180);
         if (Math.abs(tanProd) > 1) return null;
         const hourAngle = Math.acos(-tanProd) * 180 / Math.PI;
         const solarNoon = 12 - this.location.lon / 15;
-        return new Date(d.setHours(Math.floor(solarNoon + hourAngle / 15),
-            Math.round(((solarNoon + hourAngle / 15) % 1) * 60), 0, 0));
+        const sunriseHours = solarNoon + hourAngle / 15;
+        // Return UTC date - formatTime() will handle timezone conversion
+        return new Date(Date.UTC(locDate.year, locDate.month, locDate.date,
+            Math.floor(sunriseHours), Math.round((sunriseHours % 1) * 60), 0));
     }
 
     formatTime(date) {
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // Format time using location timezone for the specific date (handles DST)
+        const offset = this.getUTCOffsetForDate(date);
+        const locMs = date.getTime() + offset * 3600000;
+        const locDate = new Date(locMs);
+        const h = locDate.getUTCHours();
+        const m = locDate.getUTCMinutes();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        return `${String(h12).padStart(2, ' ')}:${String(m).padStart(2, '0')} ${ampm}`;
     }
 
     // ── Sun position (Jean Meeus simplified) ──────────────────────────────────
@@ -1886,8 +2170,9 @@ class NightSkyApp {
 
     // ── Time when Sun reaches altDeg today (eve = setting side, morn = rising side) ──
     getSunTimeAtAlt(altDeg) {
-        const d  = new Date(this.currentTime);
-        const doy = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+        // Use location-local date for solar calculations
+        const locDate = this.getLocationLocalDate(this.currentTime);
+        const doy = locDate.dayOfYear;
         const lat = this.location.lat;
         const decl   = -23.45 * Math.cos(2 * Math.PI * (doy + 10) / 365);
         const sinAlt = Math.sin(altDeg * Math.PI / 180);
@@ -1901,7 +2186,9 @@ class NightSkyApp {
         const sn  = 12 - this.location.lon / 15;
         const mk  = (h) => {
             const hh = ((h % 24) + 24) % 24;
-            return new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(hh), Math.round((hh % 1) * 60), 0, 0);
+            // Return UTC date - formatTime() will handle timezone conversion
+            return new Date(Date.UTC(locDate.year, locDate.month, locDate.date, 
+                Math.floor(hh), Math.round((hh % 1) * 60), 0));
         };
         return { eve: mk(sn + haH), morn: mk(sn - haH) };
     }
@@ -2058,6 +2345,86 @@ class NightSkyApp {
         return results.sort((a, b) => b.score - a.score);
     }
 
+    getBestTargetsForPlanning() {
+        // Plan panel: focus on framing potential, multi-night suitability, and DSO details
+        // Unlike Tonight panel which focuses on current conditions (moon, dark window)
+        const lat = this.location.lat;
+        
+        const scoreForPlanning = (obj) => {
+            const ra = obj.ra;
+            const dec = obj.dec;
+            
+            // 1. Peak altitude (permanent factor, not weather dependent)
+            const peakAlt = 90 - Math.abs(lat - dec);
+            if (peakAlt < 10) return null;
+            const altScore = Math.min(35, (peakAlt - 10) / 80 * 35);
+            
+            // 2. Size for framing (bigger is better for planning interesting shots)
+            let framingScore = 0;
+            if (obj.isDSO && obj.size) {
+                framingScore = obj.size > 30 ? 25  // Large, detailed targets
+                             : obj.size > 15 ? 20  // Good size
+                             : obj.size > 5 ? 15   // Moderate
+                             : 10;                 // Small but worthwhile
+            } else if (obj.isPlanet) {
+                framingScore = 15;  // Planets are interesting for planetary imaging
+            } else {
+                framingScore = 8;
+            }
+            
+            // 3. Magnitude (brighter is more accessible)
+            const mag = obj.mag || obj.magnitude || 5;
+            const magScore = mag < 6 ? 20 : mag < 8 ? 17 : mag < 10 ? 14 : mag < 12 ? 10 : 5;
+            
+            // 4. How often visible (circumpolar bonus)
+            const circumpolar = peakAlt > 90 - Math.abs(lat);
+            const visibilityScore = circumpolar ? 20 : 15;
+            
+            // 5. Type variety bonus (encourage diverse portfolio)
+            let typeBonus = 0;
+            if (obj.type) {
+                const type = obj.type.toLowerCase();
+                typeBonus = type.includes('galaxy') ? 5
+                          : type.includes('nebula') ? 5
+                          : type.includes('cluster') ? 4
+                          : 3;
+            }
+            
+            return Math.min(100, Math.round(altScore + framingScore + magScore + visibilityScore + typeBonus));
+        };
+        
+        const results = [];
+        
+        // Plan panel shows more DSOs including fainter ones for planning purposes
+        this.dsos.filter(d => d.alt > -10).forEach(d => {
+            const s = scoreForPlanning(d);
+            if (s !== null && s >= 15) {
+                results.push({
+                    name: d.name, type: d.type,
+                    ra: d.ra, dec: d.dec,
+                    const: d.const, icon: d.icon, score: s,
+                    mag: d.mag, size: d.size, isDSO: true
+                });
+            }
+        });
+        
+        // Add planets but with lower priority for planning
+        this.planets.filter(p => p.alt > -5).forEach(p => {
+            const s = scoreForPlanning({ ...p, isPlanet: true });
+            if (s !== null && s >= 20) {
+                results.push({
+                    name: p.name, type: 'Planet',
+                    ra: p.ra, dec: p.dec,
+                    const: this.getConstellation(p.ra, p.dec),
+                    icon: '●', score: s,
+                    isPlanet: true
+                });
+            }
+        });
+        
+        return results.sort((a, b) => b.score - a.score);
+    }
+
     getConstellation(ra, dec) {
         // Simplified constellation lookup
         if (dec > 80) return 'Ursa Minor';
@@ -2147,18 +2514,28 @@ class NightSkyApp {
             }
         });
 
-        // Search constellations
-        const conNames = [...new Set(this.dsos.map(ds => ds.const))];
-        conNames.forEach(c => {
-            if (c.toLowerCase().includes(q)) {
-                results.push({
-                    name: c,
-                    type: 'Constellation',
-                    ra: 0,
-                    dec: 0,
-                    icon: '✨'
+        // Search constellations - use dynamicConstellations with computed centroids from line segments
+        const conData = this.dynamicConstellations || [];
+        conData.forEach(con => {
+            if (!con.name || !con.name.toLowerCase().includes(q)) return;
+            // Compute centroid from all segment endpoints
+            let sumRa = 0, sumDec = 0, count = 0;
+            con.segments.forEach(seg => {
+                seg.forEach(([ra, dec]) => {
+                    sumRa += ra;
+                    sumDec += dec;
+                    count++;
                 });
-            }
+            });
+            const avgRa = count > 0 ? sumRa / count : 0;
+            const avgDec = count > 0 ? sumDec / count : 0;
+            results.push({
+                name: con.name,
+                type: 'Constellation',
+                ra: avgRa,
+                dec: avgDec,
+                icon: '✨'
+            });
         });
 
         return results.slice(0, 15);
@@ -2190,81 +2567,6 @@ class NightSkyApp {
         });
     }
 
-    // ── Gear Profile ───────────────────────────────────────────────────────────
-    static get SENSOR_PRESETS() {
-        return [
-            { name: 'Phone',        level: 'phone',     fl: 26,   crop: 7.0, pitch: 1.2,  aperture: 3  },
-            { name: 'Sony A7 III',  level: 'tracker',   fl: 50,   crop: 1.0, pitch: 5.97, aperture: 50 },
-            { name: 'Sony A7R V',   level: 'tracker',   fl: 85,   crop: 1.0, pitch: 4.37, aperture: 85 },
-            { name: 'Canon 6D II',  level: 'dslr',      fl: 50,   crop: 1.0, pitch: 6.55, aperture: 50 },
-            { name: 'Canon R6',     level: 'tracker',   fl: 50,   crop: 1.0, pitch: 4.35, aperture: 50 },
-            { name: 'Nikon D750',   level: 'dslr',      fl: 50,   crop: 1.0, pitch: 5.95, aperture: 50 },
-            { name: 'APS-C (1.5×)', level: 'dslr',      fl: 50,   crop: 1.5, pitch: 4.23, aperture: 50 },
-            { name: 'MFT (2×)',     level: 'dslr',      fl: 50,   crop: 2.0, pitch: 3.76, aperture: 50 },
-        ];
-    }
-
-    openGearModal() {
-        this.closeAllPanels();
-        document.getElementById('gear-modal').style.display = 'flex';
-        const saved = this.loadGearProfile();
-        if (saved) {
-            this.gearProfile = { ...this.gearProfile, ...saved };
-            const radio = document.querySelector(`input[name="gear-level"][value="${saved.level}"]`);
-            if (radio) radio.checked = true;
-            document.getElementById('focal-length').value  = saved.focalLength  || 50;
-            document.getElementById('crop-factor').value   = saved.cropFactor   || 1;
-            document.getElementById('aperture-mm').value   = saved.aperture     || 50;
-            document.getElementById('pixel-pitch').value   = saved.pixelPitch   || 5.97;
-        }
-        this.renderGearPresets();
-    }
-
-    renderGearPresets() {
-        const container = document.getElementById('gear-presets');
-        if (!container) return;
-        container.innerHTML = NightSkyApp.SENSOR_PRESETS.map((p, i) => `
-            <button class="preset-btn" data-idx="${i}" style="font-size:0.75em;padding:3px 8px;
-                margin:2px;background:rgba(80,120,200,0.25);border:1px solid rgba(100,150,255,0.3);
-                border-radius:4px;color:rgba(180,210,255,0.9);cursor:pointer">${p.name}</button>
-        `).join('');
-        container.querySelectorAll('.preset-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const p = NightSkyApp.SENSOR_PRESETS[parseInt(btn.dataset.idx)];
-                document.querySelector(`input[name="gear-level"][value="${p.level}"]`).checked = true;
-                document.getElementById('focal-length').value = p.fl;
-                document.getElementById('aperture-mm').value  = p.aperture;
-                document.getElementById('pixel-pitch').value  = p.pitch;
-                const sel = document.getElementById('crop-factor');
-                const opt = [...sel.options].find(o => Math.abs(parseFloat(o.value) - p.crop) < 0.05);
-                if (opt) sel.value = opt.value;
-            });
-        });
-    }
-
-    closeGearModal() {
-        document.getElementById('gear-modal').style.display = 'none';
-    }
-
-    saveGearProfile() {
-        const level       = document.querySelector('input[name="gear-level"]:checked').value;
-        const focalLength = parseInt(document.getElementById('focal-length').value)  || 50;
-        const cropFactor  = parseFloat(document.getElementById('crop-factor').value) || 1;
-        const aperture    = parseFloat(document.getElementById('aperture-mm').value)  || 50;
-        const pixelPitch  = parseFloat(document.getElementById('pixel-pitch').value)  || 5.97;
-        this.gearProfile  = { level, focalLength, cropFactor, aperture, pixelPitch };
-        try { localStorage.setItem('nso_gear', JSON.stringify(this.gearProfile)); } catch (_) {}
-        this.closeGearModal();
-    }
-
-    loadGearProfile() {
-        try {
-            const raw = localStorage.getItem('nso_gear');
-            if (raw) return JSON.parse(raw);
-        } catch (_) {}
-        return null;
-    }
-
     // ── NPF exposure calculator ────────────────────────────────────────────────
     npfExposure(decDeg) {
         const { focalLength: fl, cropFactor: cf, pixelPitch: p } = this.gearProfile;
@@ -2287,15 +2589,223 @@ class NightSkyApp {
     openPlanPanel() {
         this.closeAllPanels();
         document.getElementById('plan-panel').classList.add('open');
+        this.populateGearForm();
         this.updatePlanTargets();
     }
 
     closePlanPanel() {
         document.getElementById('plan-panel').classList.remove('open');
+        this._selectedPlanTarget = null;
+    }
+
+    populateGearForm() {
+        const { level, focalLength, cropFactor, aperture, pixelPitch } = this.gearProfile;
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        set('gear-focal',  focalLength);
+        set('gear-crop',   cropFactor);
+        set('gear-fratio', focalLength > 0 && aperture > 0 ? +(focalLength / aperture).toFixed(1) : 1.8);
+        set('gear-pitch',  pixelPitch);
+        const radio = document.querySelector(`input[name="gear-level"][value="${level}"]`);
+        if (radio) radio.checked = true;
+        document.getElementById('gear-saved').textContent = '';
+    }
+
+    saveGearProfileFromUI() {
+        const fl     = parseFloat(document.getElementById('gear-focal').value);
+        const fratio = parseFloat(document.getElementById('gear-fratio').value);
+        const cf     = parseFloat(document.getElementById('gear-crop').value);
+        const pp     = parseFloat(document.getElementById('gear-pitch').value);
+        const levelEl = document.querySelector('input[name="gear-level"]:checked');
+        if (!isFinite(fl) || fl <= 0 || !isFinite(fratio) || fratio <= 0) return;
+        if (!isFinite(cf) || cf <= 0 || !isFinite(pp) || pp <= 0 || !levelEl) return;
+        this.gearProfile.focalLength = fl;
+        this.gearProfile.aperture    = +(fl / fratio).toFixed(2);
+        this.gearProfile.cropFactor  = cf;
+        this.gearProfile.pixelPitch  = pp;
+        this.gearProfile.level       = levelEl.value;
+        try { localStorage.setItem('nso-gear', JSON.stringify(this.gearProfile)); } catch(_) {}
+        const saved = document.getElementById('gear-saved');
+        if (saved) { saved.textContent = '\u2713 Saved'; setTimeout(() => { saved.textContent = ''; }, 1800); }
+        this._refreshPlanOutput();
+    }
+
+    resetGearProfile() {
+        this.gearProfile = Object.assign({}, this.GEAR_DEFAULTS);
+        try { localStorage.removeItem('nso-gear'); } catch(_) {}
+        this.populateGearForm();
+        const saved = document.getElementById('gear-saved');
+        if (saved) { saved.textContent = 'Reset to defaults'; setTimeout(() => { saved.textContent = ''; }, 1800); }
+        this._refreshPlanOutput();
+    }
+
+    _refreshPlanOutput() {
+        if (!document.getElementById('plan-panel').classList.contains('open')) return;
+        this.updatePlanTargets();
+        if (this._selectedPlanTarget) {
+            // Re-apply highlight to the newly rendered list item
+            document.querySelectorAll('.plan-target-item').forEach(el => {
+                const idx = parseInt(el.dataset.index);
+                const listItems = this.getBestTargetsForPlanning().slice(0, 10);
+                if (listItems[idx] && listItems[idx].name === this._selectedPlanTarget.name) {
+                    el.classList.add('selected');
+                }
+            });
+            const detailsEl = document.getElementById('plan-details');
+            if (detailsEl && detailsEl.style.display !== 'none') {
+                const t = this._selectedPlanTarget;
+                const fullDso = this.dsos.find(d => d.name === t.name);
+                this.renderPlanTargetDetail(fullDso ? { ...t, ...fullDso } : t, t);
+            }
+        }
+    }
+
+    // ── Plate Solve ───────────────────────────────────────────────────────────
+    openPlateSolvePanel() {
+        this.closeAllPanels();
+        document.getElementById('solve-panel').classList.add('open');
+        const saved = localStorage.getItem('astroSolveKey') || '';
+        document.getElementById('solve-apikey').value = saved;
+        const savedWait = localStorage.getItem('nso-solve-maxwait');
+        const waitEl = document.getElementById('solve-maxwait');
+        if (savedWait && waitEl) waitEl.value = savedWait;
+        document.getElementById('solve-status').textContent = '';
+        document.getElementById('solve-result').innerHTML = '';
+    }
+
+    closePlateSolvePanel() {
+        this.solveAbort = true;
+        document.getElementById('solve-panel').classList.remove('open');
+    }
+
+    async runPlateSolve() {
+        const apikey    = document.getElementById('solve-apikey').value.trim();
+        const fileInput = document.getElementById('solve-file');
+        const statusEl  = document.getElementById('solve-status');
+        const resultEl  = document.getElementById('solve-result');
+        const submitBtn = document.getElementById('solve-submit');
+        const cancelBtn = document.getElementById('solve-cancel');
+
+        if (!apikey)                { statusEl.textContent = '⚠️ Enter your astrometry.net API key first.'; return; }
+        if (!fileInput.files.length) { statusEl.textContent = '⚠️ Select an image file first.'; return; }
+
+        const MAX_BYTES = 8 * 1024 * 1024;
+        if (fileInput.files[0].size > MAX_BYTES) {
+            statusEl.textContent = `⚠️ File is ${(fileInput.files[0].size / 1048576).toFixed(1)} MB — please use an image under 8 MB for reliable uploads.`;
+            return;
+        }
+
+        const maxWaitSel = document.getElementById('solve-maxwait');
+        const maxWaitMin  = maxWaitSel ? parseInt(maxWaitSel.value, 10) : 4;
+        try { localStorage.setItem('nso-solve-maxwait', String(maxWaitMin)); } catch(_) {}
+        const POLL_MS     = 5000;
+        const maxIter     = Math.round((maxWaitMin * 60 * 1000) / 2 / POLL_MS);
+
+        this.solveAbort  = false;
+        submitBtn.disabled = true;
+        cancelBtn.style.display = 'inline-block';
+        resultEl.innerHTML = '';
+
+        const finish = (msg) => {
+            statusEl.textContent = msg;
+            submitBtn.disabled = false;
+            cancelBtn.style.display = 'none';
+        };
+
+        localStorage.setItem('astroSolveKey', apikey);
+        statusEl.textContent = '📖 Reading image…';
+
+        let imageBase64;
+        try {
+            imageBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(fileInput.files[0]);
+            });
+        } catch (e) { finish('❌ Could not read file.'); return; }
+
+        if (this.solveAbort) { finish('Cancelled.'); return; }
+        statusEl.textContent = '📤 Uploading to astrometry.net…';
+        let subid;
+        try {
+            const resp = await fetch('/api/platesolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apikey, imageBase64 })
+            });
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error);
+            subid = data.subid;
+        } catch (e) { finish(`❌ Upload failed: ${e.message}`); return; }
+
+        // Poll for job ID (up to half the user-chosen max wait)
+        statusEl.textContent = `⏳ Queued for solve… (sub ${subid})`;
+        let jobid = null;
+        for (let i = 0; i < maxIter && !jobid; i++) {
+            await new Promise(r => setTimeout(r, POLL_MS));
+            if (this.solveAbort) { finish('Cancelled.'); return; }
+            try {
+                const r = await fetch(`/api/solvepoll?subid=${subid}`);
+                const d = await r.json();
+                if (d.jobs && d.jobs.length && d.jobs[0]) jobid = d.jobs[0];
+            } catch (_) {}
+            if (!jobid) statusEl.textContent = `⏳ Waiting for solver… (${(i + 1) * 5}s)`;
+        }
+        if (!jobid) { finish('❌ Timed out waiting for job assignment.'); return; }
+
+        // Poll for calibration result (remaining half of max wait)
+        statusEl.textContent = `🔭 Solving… (job ${jobid})`;
+        for (let i = 0; i < maxIter; i++) {
+            await new Promise(r => setTimeout(r, POLL_MS));
+            if (this.solveAbort) { finish('Cancelled.'); return; }
+            try {
+                const r = await fetch(`/api/solvepoll?jobid=${jobid}`);
+                const d = await r.json();
+                if (d.status === 'success' && d.ra !== undefined) {
+                    finish('✓ Solved!');
+                    const ra = d.ra, dec = d.dec;
+                    resultEl.innerHTML = `
+                        <div style="font-size:0.85em;color:rgba(160,200,255,0.9);line-height:2;margin-top:4px">
+                            RA: <b>${ra.toFixed(4)}°</b> (${(ra / 15).toFixed(3)}h)<br>
+                            Dec: <b>${dec.toFixed(4)}°</b><br>
+                            ${d.orientation !== undefined ? `Orientation: <b>${d.orientation.toFixed(1)}°</b><br>` : ''}
+                            ${d.pixscale    !== undefined ? `Scale: <b>${d.pixscale.toFixed(2)}″/px</b><br>` : ''}
+                        </div>
+                        <button id="solve-go" style="margin-top:6px;font-size:0.82em;padding:4px 12px;
+                            background:rgba(70,140,255,0.3);border:1px solid rgba(100,160,255,0.4);
+                            border-radius:4px;color:rgba(180,220,255,0.9);cursor:pointer">
+                            ⊕ Centre chart on this position
+                        </button>`;
+                    document.getElementById('solve-go').addEventListener('click', () => {
+                        this.centreChartOn(ra, dec);
+                        this.closePlateSolvePanel();
+                    });
+                    return;
+                } else if (d.status === 'failure') {
+                    finish('❌ Solve failed — not enough stars or unrecognised field.');
+                    return;
+                }
+            } catch (_) {}
+            statusEl.textContent = `🔭 Solving… (${(i + 1) * 5}s elapsed)`;
+        }
+        finish('❌ Solve timed out. Check status at nova.astrometry.net.');
+    }
+
+    centreChartOn(raDeg, decDeg) {
+        if (this.location.lat === null) return;
+        const { alt, az } = this.raDecToAltAz(raDeg, decDeg);
+        if (alt < -20) return;
+        const pos = this.altAzToXY(alt, az);
+        if (!pos) return;
+        this.panX = this.center.x - pos.x;
+        this.panY = this.center.y - pos.y;
+        this.render();
     }
 
     updatePlanTargets() {
-        const targets = this.getBestTargetsTonight().slice(0, 10);
+        // Use planning-focused target list (framing potential, multi-night suitability)
+        // Unlike Tonight panel which uses getBestTargetsTonight (current conditions focus)
+        const targets = this.getBestTargetsForPlanning().slice(0, 10);
         const html = targets.map((t, i) => `
             <div class="plan-target-item" data-index="${i}">
                 <span class="target-icon">${t.icon}</span>
@@ -2313,17 +2823,20 @@ class NightSkyApp {
                 document.querySelectorAll('.plan-target-item').forEach(el => el.classList.remove('selected'));
                 item.classList.add('selected');
                 const idx = parseInt(item.dataset.index);
+                this._selectedPlanTarget = targets[idx];
                 this.showPlanTargetDetails(targets[idx]);
             });
         });
     }
 
     showPlanTargetDetails(target) {
-        // Enrich with full DSO data if available (for framing)
         const fullDso = this.dsos.find(d => d.name === target.name);
         const richTarget = fullDso ? { ...target, ...fullDso } : target;
         this.centerOnObject(richTarget);
+        this.renderPlanTargetDetail(richTarget, target);
+    }
 
+    renderPlanTargetDetail(richTarget, target) {
         const details = document.getElementById('plan-details');
         details.style.display = 'block';
 
@@ -2342,7 +2855,6 @@ class NightSkyApp {
             </div>
         `;
 
-        // Transit time
         const lst   = this.localSiderealTime();
         let haDeg   = ((lst - richTarget.ra) + 360) % 360;
         if (haDeg > 180) haDeg -= 360;

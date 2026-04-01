@@ -1,0 +1,32 @@
+{
+  "name": "Night Sky Observer",
+  "short_name": "NightSky",
+  "description": "Real-time sky chart with DSOs, planets, comets, and astrophotography planning",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060b1e",
+  "theme_color": "#060b1e",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%23060b1e' stroke='%234466cc' stroke-width='3'/><circle cx='50' cy='50' r='20' fill='none' stroke='%23aabbff' stroke-width='1.5'/><circle cx='35' cy='30' r='3' fill='%23fffef0'/><circle cx='65' cy='25' r='2' fill='%23fffef0'/><circle cx='72' cy='55' r='3.5' fill='%23fffef0'/><circle cx='28' cy='65' r='2.5' fill='%23fffef0'/></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "lifestyle"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Tonight's Sky",
+      "url": "/?panel=tonight",
+      "description": "View tonight's best targets"
+    },
+    {
+      "name": "Plan & Shoot",
+      "url": "/?panel=plan",
+      "description": "Astrophotography planner"
+    }
+  ]
+}

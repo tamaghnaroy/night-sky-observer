@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Night Sky Observer</title>
     <link rel="icon" href="data:,">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#060b1e">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -22,14 +24,14 @@
                     <div id="location-time" class="location-time-label"></div>
                 </div>
                 <div class="view-controls">
-                    <button id="toggle-constellations">Toggle Constellations</button>
-                    <button id="toggle-zodiac">Toggle Zodiac</button>
-                    <button id="toggle-planets">Toggle Planets</button>
-                    <button id="toggle-comets">Toggle Comets</button>
-                    <button id="toggle-grid">Toggle Grid</button>
-                    <button id="toggle-dsos" class="active">Toggle DSOs</button>
-                    <button id="toggle-meteors">Toggle Meteors</button>
-                    <button id="toggle-iss">Toggle ISS</button>
+                    <button id="toggle-constellations">Constellations</button>
+                    <button id="toggle-zodiac">Zodiac</button>
+                    <button id="toggle-planets">Planets</button>
+                    <button id="toggle-comets" title="Comets - topocentric positions from JPL orbital elements (observer-specific when location is set)">Comets</button>
+                    <button id="toggle-grid">Grid</button>
+                    <button id="toggle-dsos" class="active">DSOs</button>
+                    <button id="toggle-meteors">Meteors</button>
+                    <button id="toggle-iss">ISS</button>
                     <button id="toggle-night-mode" title="Red light mode for dark adaptation">🌙 Night Mode</button>
                     <button id="btn-reset-view" title="Reset zoom and pan (double-click canvas)">Reset View</button>
                 </div>
@@ -37,8 +39,8 @@
             <div class="quick-actions">
                 <button id="btn-tonight" class="quick-btn primary-action">Tonight</button>
                 <button id="btn-search" class="quick-btn">Search</button>
-                <button id="btn-plan" class="quick-btn">Plan & Shoot</button>
-                <button id="btn-gear" class="quick-btn">⚙ Gear</button>
+                <button id="btn-plan" class="quick-btn">Plan &amp; Shoot</button>
+                <button id="btn-solve" class="quick-btn" title="Plate solve an astrophoto via astrometry.net">🌌 Solve</button>
                 <button id="btn-log" class="quick-btn">📓 Log</button>
                 <button id="btn-export" class="quick-btn">📷 Export</button>
             </div>
@@ -69,7 +71,22 @@
                         <span class="planet-icon">●</span> Planets
                     </div>
                     <div class="legend-item">
+                        <span class="moon-icon">☽</span> Moon
+                    </div>
+                    <div class="legend-item">
+                        <span class="dso-icon">⊕</span> Deep Sky Objects
+                    </div>
+                    <div class="legend-item">
                         <span class="constellation-line">—</span> Constellation Lines
+                    </div>
+                    <div class="legend-item">
+                        <span class="zodiac-line">- - -</span> Zodiac Ecliptic
+                    </div>
+                    <div class="legend-item">
+                        <span class="meteor-icon">☄</span> Meteor Showers
+                    </div>
+                    <div class="legend-item">
+                        <span class="iss-icon">🛰</span> ISS
                     </div>
                 </div>
             </div>
@@ -91,8 +108,8 @@
             <div class="modal-divider">— or enter coordinates —</div>
 
             <div class="modal-row">
-                <label>Latitude&nbsp;<input type="number" id="manual-lat" step="0.0001" min="-90" max="90" placeholder="-43.5321" /></label>
-                <label>Longitude&nbsp;<input type="number" id="manual-lon" step="0.0001" min="-180" max="180" placeholder="172.6362" /></label>
+                <label>Latitude&nbsp;<small>(+N / −S)</small>&nbsp;<input type="number" id="manual-lat" step="0.0001" min="-90" max="90" placeholder="-43.5321" /></label>
+                <label>Longitude&nbsp;<small>(+E / −W)</small>&nbsp;<input type="number" id="manual-lon" step="0.0001" min="-180" max="180" placeholder="172.6362" /></label>
             </div>
 
             <div class="modal-actions">
@@ -138,6 +155,7 @@
                     Enable <b>Toggle ISS</b> to track in real time.
                 </div>
             </div>
+            <div id="weather-section" style="margin-top:14px;display:none"></div>
         </div>
     </div>
 
@@ -155,68 +173,63 @@
         </div>
     </div>
 
-    <!-- Gear Modal -->
-    <div id="gear-modal" class="modal-overlay" style="display:none">
-        <div class="modal-box">
-            <h2>Equipment Profile</h2>
-            <p class="modal-hint">Select your gear to get personalized recommendations.</p>
-            
-            <div class="gear-options">
-                <label class="gear-option">
-                    <input type="radio" name="gear-level" value="phone" checked>
-                    <span class="gear-icon">📱</span>
-                    <span class="gear-label">Phone Only</span>
-                    <span class="gear-desc">Handheld or tripod</span>
+    <!-- Plate Solve Panel -->
+    <div id="solve-panel" class="slide-panel">
+        <div class="panel-header">
+            <h2>🌌 Plate Solve</h2>
+            <button id="close-solve" class="close-btn">×</button>
+        </div>
+        <div class="panel-content">
+            <p style="font-size:0.82em;color:rgba(160,200,255,0.7);margin-bottom:10px">
+                Upload an astrophoto to identify its sky coordinates via
+                <a href="https://nova.astrometry.net" target="_blank" rel="noopener"
+                   style="color:rgba(120,180,255,0.85)">nova.astrometry.net</a>.
+            </p>
+            <div style="margin-bottom:10px">
+                <label style="font-size:0.82em;color:rgba(160,200,255,0.7);display:block;margin-bottom:4px">
+                    API Key
+                    <a href="https://nova.astrometry.net/api_help" target="_blank" rel="noopener"
+                       style="font-size:0.85em;color:rgba(120,180,255,0.7);margin-left:6px">(get one)</a>
                 </label>
-                <label class="gear-option">
-                    <input type="radio" name="gear-level" value="dslr">
-                    <span class="gear-icon">📷</span>
-                    <span class="gear-label">DSLR/Mirrorless</span>
-                    <span class="gear-desc">Tripod mount</span>
-                </label>
-                <label class="gear-option">
-                    <input type="radio" name="gear-level" value="tracker">
-                    <span class="gear-icon">🔭</span>
-                    <span class="gear-label">With Tracker</span>
-                    <span class="gear-desc">Star tracker mount</span>
-                </label>
-                <label class="gear-option">
-                    <input type="radio" name="gear-level" value="telescope">
-                    <span class="gear-icon">🔭</span>
-                    <span class="gear-label">Telescope</span>
-                    <span class="gear-desc">Guided imaging</span>
-                </label>
+                <input id="solve-apikey" type="password"
+                    placeholder="Your astrometry.net API key"
+                    style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);
+                           border:1px solid rgba(100,150,255,0.3);border-radius:4px;
+                           color:rgba(200,230,255,0.9);padding:5px 8px;font-size:0.85em" />
             </div>
-
-            <div class="modal-hint" style="margin-bottom:6px">Quick-fill preset:</div>
-            <div class="gear-presets" id="gear-presets"></div>
-
-            <div class="modal-row">
-                <label>Focal Length (mm)
-                    <input type="number" id="focal-length" value="50" min="8" max="2000" />
-                </label>
-                <label>Aperture (mm)
-                    <input type="number" id="aperture-mm" value="50" min="5" max="500" />
-                </label>
-            </div>
-            <div class="modal-row">
-                <label>Sensor Crop Factor
-                    <select id="crop-factor">
-                        <option value="1">Full Frame (1.0x)</option>
-                        <option value="1.5">APS-C (1.5x)</option>
-                        <option value="1.6">APS-C Canon (1.6x)</option>
-                        <option value="2">Micro 4/3 (2.0x)</option>
+            <div style="margin-bottom:12px;display:flex;gap:12px;align-items:flex-end">
+                <div style="flex:1">
+                    <label style="font-size:0.82em;color:rgba(160,200,255,0.7);display:block;margin-bottom:4px">Image File (JPEG/PNG)</label>
+                    <input id="solve-file" type="file" accept="image/*"
+                        style="font-size:0.82em;color:rgba(200,230,255,0.8)" />
+                </div>
+                <div>
+                    <label style="font-size:0.82em;color:rgba(160,200,255,0.7);display:block;margin-bottom:4px">Max wait</label>
+                    <select id="solve-maxwait"
+                        style="background:rgba(255,255,255,0.07);border:1px solid rgba(100,150,255,0.3);
+                               border-radius:4px;color:rgba(200,230,255,0.9);padding:4px 6px;font-size:0.82em">
+                        <option value="2">2 min</option>
+                        <option value="4" selected>4 min</option>
+                        <option value="8">8 min</option>
                     </select>
-                </label>
-                <label>Pixel Pitch (μm)
-                    <input type="number" id="pixel-pitch" value="5.97" min="0.5" max="20" step="0.01" />
-                </label>
+                </div>
             </div>
-
-            <div class="modal-actions">
-                <button id="gear-save" class="primary">Save Profile</button>
-                <button id="gear-cancel">Cancel</button>
+            <div style="display:flex;gap:8px">
+                <button id="solve-submit"
+                    style="flex:1;padding:7px;background:rgba(70,120,220,0.4);
+                           border:1px solid rgba(100,160,255,0.5);border-radius:5px;
+                           color:rgba(200,230,255,0.95);cursor:pointer;font-size:0.88em">
+                    🔭 Submit for Solve
+                </button>
+                <button id="solve-cancel"
+                    style="display:none;padding:7px 14px;background:rgba(180,60,60,0.35);
+                           border:1px solid rgba(255,100,100,0.4);border-radius:5px;
+                           color:rgba(255,180,180,0.9);cursor:pointer;font-size:0.88em">
+                    ✕ Cancel
+                </button>
             </div>
+            <div id="solve-status" style="margin-top:10px;font-size:0.82em;color:rgba(200,200,200,0.8)"></div>
+            <div id="solve-result" style="margin-top:6px"></div>
         </div>
     </div>
 
@@ -259,6 +272,63 @@
                     <div id="plan-settings"></div>
                 </div>
             </div>
+            <div style="margin-top:16px;border-top:1px solid rgba(100,150,255,0.15);padding-top:12px">
+                <h4 style="margin:0 0 8px;font-size:0.85em;color:rgba(160,200,255,0.7);letter-spacing:0.04em">⚙ Gear Profile</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.82em">
+                    <div>
+                        <label style="color:rgba(160,200,255,0.65);display:block;margin-bottom:2px">Focal length (mm)</label>
+                        <input id="gear-focal" type="number" min="8" max="3000" step="1" value="50"
+                            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);
+                                   border:1px solid rgba(100,150,255,0.3);border-radius:4px;
+                                   color:rgba(200,230,255,0.9);padding:4px 7px" />
+                    </div>
+                    <div>
+                        <label style="color:rgba(160,200,255,0.65);display:block;margin-bottom:2px">f-ratio (e.g. 2.8)</label>
+                        <input id="gear-fratio" type="number" min="0.7" max="22" step="0.1" value="1.8"
+                            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);
+                                   border:1px solid rgba(100,150,255,0.3);border-radius:4px;
+                                   color:rgba(200,230,255,0.9);padding:4px 7px" />
+                    </div>
+                    <div>
+                        <label style="color:rgba(160,200,255,0.65);display:block;margin-bottom:2px">Crop factor</label>
+                        <input id="gear-crop" type="number" min="0.64" max="6" step="0.05" value="1"
+                            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);
+                                   border:1px solid rgba(100,150,255,0.3);border-radius:4px;
+                                   color:rgba(200,230,255,0.9);padding:4px 7px" />
+                    </div>
+                    <div>
+                        <label style="color:rgba(160,200,255,0.65);display:block;margin-bottom:2px">Pixel pitch (µm)</label>
+                        <input id="gear-pitch" type="number" min="0.5" max="30" step="0.1" value="5.97"
+                            title="Phone ~1.5 µm · DSLR ~4–8 µm · Large format ~9+ µm"
+                            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.07);
+                                   border:1px solid rgba(100,150,255,0.3);border-radius:4px;
+                                   color:rgba(200,230,255,0.9);padding:4px 7px" />
+                    </div>
+                    <div style="grid-column:1/-1">
+                        <label style="color:rgba(160,200,255,0.65);display:block;margin-bottom:4px">Gear level</label>
+                        <div style="display:flex;gap:10px">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="radio" name="gear-level" value="phone" /> Phone / compact
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="radio" name="gear-level" value="binoculars" /> Binoculars
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="radio" name="gear-level" value="telescope" /> Telescope
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+                    <div id="gear-saved" style="font-size:0.78em;color:rgba(100,220,140,0.7);flex:1;min-height:14px"></div>
+                    <button id="gear-reset"
+                        style="font-size:0.76em;padding:3px 10px;background:rgba(160,80,40,0.3);
+                               border:1px solid rgba(200,120,60,0.4);border-radius:4px;
+                               color:rgba(220,170,130,0.85);cursor:pointer">
+                        Reset defaults
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -266,5 +336,12 @@
     <script src="stardata.js"></script>
     <script src="dso-catalog.js"></script>
     <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(r => console.log('SW registered:', r.scope))
+                .catch(e => console.warn('SW registration failed:', e));
+        }
+    </script>
 </body>
 </html>

@@ -1,8 +1,8 @@
 node_modules/
 dist/
 .playwright-cli/
-issues/
 .windsurf/
+issues/
 *.log
 .DS_Store
 Thumbs.db
